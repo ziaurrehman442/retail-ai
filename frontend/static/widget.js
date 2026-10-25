@@ -33,6 +33,18 @@
       .mini{width:24px;height:24px;flex:none;display:grid;place-items:center;border-radius:8px;background:#f0edff;color:#725be0;font-size:13px}
       .bubble{max-width:83%;padding:11px 12px;border:1px solid #eeedf3;border-radius:5px 13px 13px;background:#f8f8fb;color:#414256;font-size:12px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
       .user .bubble{border:0;border-radius:13px 5px 13px 13px;background:#725be0;color:white}
+      .bubble.markdown{white-space:normal}
+      .markdown p{margin:0 0 .65em}.markdown>:first-child{margin-top:0}.markdown>:last-child{margin-bottom:0}
+      .markdown h1,.markdown h2,.markdown h3,.markdown h4,.markdown h5,.markdown h6{margin:.55em 0 .35em;color:inherit;font:inherit;font-weight:700}
+      .markdown ul,.markdown ol{margin:.45em 0 .7em;padding-left:1.5em}.markdown li+li{margin-top:.22em}
+      .markdown blockquote{margin:.5em 0;padding-left:.8em;border-left:2px solid #c9c0ea;color:#74738a}
+      .markdown a{color:#6955c9;text-decoration:underline;text-underline-offset:2px}.user .markdown a{color:#fff}
+      .markdown code{padding:.1em .35em;border-radius:4px;background:#eeedf4;color:#514b72;font-family:Consolas,monospace;font-size:.92em}
+      .markdown pre{max-width:100%;overflow-x:auto;margin:.5em 0;padding:.7em;border-radius:7px;background:#eeedf4}
+      .markdown pre code{padding:0;background:transparent}
+      .markdown hr{margin:.7em 0;border:0;border-top:1px solid #e5e3ed}
+      .markdown table{display:block;max-width:100%;overflow-x:auto;border-collapse:collapse}
+      .markdown th,.markdown td{padding:.3em .5em;border:1px solid #e5e3ed;text-align:left}.markdown th{font-weight:700}
       .welcome{margin-top:14px}
       .quick{display:flex;flex-wrap:wrap;gap:7px;margin:15px 0 0 30px}
       .quick button{padding:8px 10px;border:1px solid #e7e2f6;border-radius:18px;background:#fff;color:#6b58ba;cursor:pointer;font-size:10px}
@@ -67,6 +79,202 @@
   const messagesNode = shadow.querySelector(".messages");
   const history = [];
   let busy = false;
+  let visitorId;
+  try {
+    const visitorKey = `nimbus-visitor-${siteId}`;
+    visitorId = window.localStorage.getItem(visitorKey) || window.crypto.randomUUID().replace(/-/g, "");
+    window.localStorage.setItem(visitorKey, visitorId);
+  } catch {
+    visitorId = window.crypto.randomUUID().replace(/-/g, "");
+  }
+
+  const safeHref = (value) => {
+    try {
+      const url = new URL(value);
+      return ["http:", "https:", "mailto:"].includes(url.protocol) ? url.href : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const renderInline = (parent, text) => {
+    const pattern = /(\*\*.+?\*\*|__.+?__|~~.+?~~|`[^`\n]+`|\*[^*\n]+\*|_[^_\n]+_|\[[^\]]+\]\((?:https?:\/\/|mailto:)[^)]+\)|https?:\/\/[^\s<]+)/g;
+    let offset = 0;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      if (match.index > offset) parent.appendChild(document.createTextNode(text.slice(offset, match.index)));
+      const token = match[0];
+      const link = token.match(/^\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)]+)\)$/);
+      let element;
+      if (link) {
+        const href = safeHref(link[2]);
+        if (!href) {
+          parent.appendChild(document.createTextNode(token));
+          offset = pattern.lastIndex;
+          continue;
+        }
+        element = document.createElement("a");
+        element.href = href;
+        element.target = "_blank";
+        element.rel = "noopener noreferrer";
+        renderInline(element, link[1]);
+      } else if (token.startsWith("**") || token.startsWith("__")) {
+        element = document.createElement("strong");
+        renderInline(element, token.slice(2, -2));
+      } else if (token.startsWith("~~")) {
+        element = document.createElement("del");
+        renderInline(element, token.slice(2, -2));
+      } else if (token.startsWith("`")) {
+        element = document.createElement("code");
+        element.textContent = token.slice(1, -1);
+      } else if (token.startsWith("*") || token.startsWith("_")) {
+        element = document.createElement("em");
+        renderInline(element, token.slice(1, -1));
+      } else {
+        const trimmed = token.replace(/[.,!?;:]+$/, "");
+        const href = safeHref(trimmed);
+        if (!href) {
+          parent.appendChild(document.createTextNode(token));
+          offset = pattern.lastIndex;
+          continue;
+        }
+        element = document.createElement("a");
+        element.href = href;
+        element.target = "_blank";
+        element.rel = "noopener noreferrer";
+        element.textContent = trimmed;
+        if (trimmed.length < token.length) {
+          parent.appendChild(element);
+          parent.appendChild(document.createTextNode(token.slice(trimmed.length)));
+          offset = pattern.lastIndex;
+          continue;
+        }
+      }
+      parent.appendChild(element);
+      offset = pattern.lastIndex;
+    }
+    if (offset < text.length) parent.appendChild(document.createTextNode(text.slice(offset)));
+  };
+
+  const renderMarkdown = (container, markdown) => {
+    container.replaceChildren();
+    const lines = markdown.split(/\r?\n/);
+    let index = 0;
+    const heading = /^(#{1,6})\s+(.+)$/;
+    const unordered = /^\s*[-*+]\s+(.+)$/;
+    const ordered = /^\s*(\d+)[.)]\s+(.+)$/;
+    const isBlockStart = (line) => heading.test(line) || unordered.test(line) ||
+      line.startsWith("```") || ordered.test(line) || /^\s*>\s?/.test(line) ||
+      /^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line);
+    const appendParagraph = (paragraph) => {
+      const element = document.createElement("p");
+      paragraph.forEach((line, lineIndex) => {
+        if (lineIndex) element.appendChild(document.createElement("br"));
+        renderInline(element, line);
+      });
+      container.appendChild(element);
+    };
+
+    while (index < lines.length) {
+      const line = lines[index].trim();
+      if (!line) {
+        index += 1;
+        continue;
+      }
+      if (line.startsWith("```")) {
+        const code = [];
+        index += 1;
+        while (index < lines.length && !lines[index].trim().startsWith("```")) {
+          code.push(lines[index]);
+          index += 1;
+        }
+        if (index < lines.length) index += 1;
+        const pre = document.createElement("pre");
+        const codeElement = document.createElement("code");
+        codeElement.textContent = code.join("\n");
+        pre.appendChild(codeElement);
+        container.appendChild(pre);
+        continue;
+      }
+      const headingMatch = line.match(heading);
+      if (headingMatch) {
+        const element = document.createElement(`h${headingMatch[1].length}`);
+        renderInline(element, headingMatch[2]);
+        container.appendChild(element);
+        index += 1;
+        continue;
+      }
+      if (line.includes("|") && index + 1 < lines.length &&
+          /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[index + 1]) && lines[index + 1].includes("-")) {
+        const splitRow = (value) => value.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+        const headers = splitRow(line);
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+        headers.forEach((cell) => {
+          const header = document.createElement("th");
+          renderInline(header, cell);
+          headerRow.appendChild(header);
+        });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+        const tbody = document.createElement("tbody");
+        index += 2;
+        while (index < lines.length && lines[index].trim().includes("|")) {
+          const cells = splitRow(lines[index]);
+          const row = document.createElement("tr");
+          headers.forEach((_, cellIndex) => {
+            const cell = document.createElement("td");
+            renderInline(cell, cells[cellIndex] || "");
+            row.appendChild(cell);
+          });
+          tbody.appendChild(row);
+          index += 1;
+        }
+        table.appendChild(tbody);
+        container.appendChild(table);
+        continue;
+      }
+      if (/^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line)) {
+        container.appendChild(document.createElement("hr"));
+        index += 1;
+        continue;
+      }
+      const orderedMatch = line.match(ordered);
+      if (line.match(unordered) || orderedMatch) {
+        const list = document.createElement(orderedMatch ? "ol" : "ul");
+        if (orderedMatch) list.start = Number(orderedMatch[1]);
+        while (index < lines.length) {
+          const item = lines[index].trim().match(orderedMatch ? ordered : unordered);
+          if (!item) break;
+          const element = document.createElement("li");
+          renderInline(element, orderedMatch ? item[2] : item[1]);
+          list.appendChild(element);
+          index += 1;
+        }
+        container.appendChild(list);
+        continue;
+      }
+      if (line.startsWith(">")) {
+        const quote = document.createElement("blockquote");
+        const parts = [];
+        while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
+          parts.push(lines[index].replace(/^\s*>\s?/, ""));
+          index += 1;
+        }
+        renderInline(quote, parts.join(" "));
+        container.appendChild(quote);
+        continue;
+      }
+      const paragraph = [line];
+      index += 1;
+      while (index < lines.length && lines[index].trim() && !isBlockStart(lines[index].trim())) {
+        paragraph.push(lines[index].trim());
+        index += 1;
+      }
+      appendParagraph(paragraph);
+    }
+  };
 
   const addMessage = (role, content, thinking = false) => {
     const row = document.createElement("div");
@@ -79,8 +287,11 @@
     }
     const bubble = document.createElement("div");
     bubble.className = "bubble";
+    if (role === "assistant") bubble.classList.add("markdown");
     if (thinking) {
       bubble.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
+    } else if (role === "assistant") {
+      renderMarkdown(bubble, content);
     } else {
       bubble.textContent = content;
     }
@@ -105,7 +316,7 @@
       const response = await fetch(`${apiBase}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site_id: siteId, messages: chatHistory }),
+        body: JSON.stringify({ site_id: siteId, messages: chatHistory, visitor_id: visitorId }),
       });
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -127,12 +338,12 @@
           const payload = JSON.parse(data.slice(6));
           if (payload.error) throw new Error(payload.error);
           answer += payload.text || "";
-          bubble.textContent = answer;
+          renderMarkdown(bubble, answer);
           messagesNode.scrollTop = messagesNode.scrollHeight;
         }
       }
       history.push({ role: "assistant", content: answer });
-      if (!answer) bubble.textContent = "I couldn't generate a response. Please try again.";
+      if (!answer) renderMarkdown(bubble, "I couldn't generate a response. Please try again.");
     } catch (error) {
       bubble.textContent = error instanceof Error ? error.message : "Sorry, the assistant couldn't respond.";
     } finally {

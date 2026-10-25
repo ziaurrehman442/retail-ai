@@ -1,93 +1,148 @@
 # Nimbus website chat
 
-Nimbus is a small Python + React starter for building customer-specific AI chat
-widgets. The Flask backend saves each website's business information in SQLite
-and supplies that information to a small Ollama model for each streamed answer.
-Business details stay on the server and are not included in the public embed
-snippet.
+Nimbus is a React dashboard and embeddable customer chat widget backed by a
+Python/Flask API, SQLite, and a small local Ollama model. Flask serves the
+prebuilt React files, so the deployed app does **not** need a separate React
+server.
 
-## Requirements
+## Run the app
 
-- Python 3.10 or newer
-- Node.js 18 or newer
-- Ollama, running locally, with `qwen2.5:3b` downloaded
+1. Copy `.env.example` to `.env` (`Copy-Item .env.example .env` in
+   PowerShell). Set your admin email, a random
+   `NIMBUS_SECRET_KEY`, and your SMTP provider's host, sender, username, and
+   app-password. The admin email becomes an administrator after its owner
+   verifies a one-time email code. No dashboard password is used.
+2. Install Python packages and prepare the model:
 
-## Run locally
-
-In one terminal, install the Python requirements and start Ollama's model:
-
-```powershell
-python -m pip install -r requirements.txt
-ollama pull qwen2.5:3b
-ollama serve
-```
-
-In another terminal, install and start the Python API:
-
-```powershell
-python app.py
-```
-
-In a third terminal, start the React dashboard:
-
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-
-Open the Vite URL printed in the terminal (normally `http://127.0.0.1:5173`).
-The React dev server proxies API calls to Flask at `http://127.0.0.1:5000`.
-
-To choose another Ollama model, set `OLLAMA_MODEL` before starting Flask, for
-example:
-
-```powershell
-$env:OLLAMA_MODEL = "qwen2.5:3b"
-python app.py
-```
-
-For a single-origin local deployment, build React and serve the result through
-Flask:
-
-```powershell
-cd frontend
-npm install
-npm run build
-cd ..
-python app.py
-```
-
-## Add your assistant to a website
-
-1. Open **Knowledge base**, enter the customer's business name and website, and
-   add their products, services, FAQs, and policies.
-2. Save the details. The assistant uses this content as its live context; this
-   starter version does not crawl a website or train/fine-tune a model.
-3. Open **Install widget**, copy the unique embed code, and place it just before
-   the closing `</body>` tag:
-
-   ```html
-   <script src="https://YOUR-APP-HOST/widget.js"
-           data-site-id="THE-WEBSITE-ID"
-           async></script>
+   ```powershell
+   python -m pip install -r requirements.txt
+   ollama pull qwen2.5:3b
    ```
 
-The script loads the assistant name from Flask and displays an animated
-bottom-corner chat button. Replies stream from Ollama as the model generates
-them. The widget expects its Flask API to be reachable at the same origin as
-the `widget.js` URL.
+3. Start the complete website from the project root:
 
-## Data and production readiness
+   ```powershell
+   python app.py
+   ```
 
-Set `NIMBUS_DB_PATH` to change where the SQLite database is stored. The MVP has
-no user authentication, tenant authorization, website-domain allow-list,
-conversation persistence, rate limiting, or automatic site crawler. Add those
-controls, HTTPS, backups, and a reviewed data-retention policy before
-production use. The public chat endpoints are intended for embedding, not as an
-access-control boundary.
+4. Visit `http://127.0.0.1:5000`.
 
-Small-model grounding is retrieval via the saved business information, not
-model training. Fine-tuning is a separate, optional future step: first collect
-consented conversations, remove personal data, review answer quality, and
-prepare a representative dataset.
+The public product homepage, passwordless sign-in, dashboard, and embedded
+widget are served by Flask from the same origin. The React development server
+is optional. For a separate frontend host, configure a same-origin reverse
+proxy to the Flask API; do not ship a localhost backend URL to customers.
+
+The email sign-in codes expire after 10 minutes and have request and attempt
+limits. To test on a private development computer without configuring SMTP,
+set `NIMBUS_ALLOW_CONSOLE_OTP=true` in `.env`; codes are then printed in the
+Python console. Do not enable console OTP on a shared or public server.
+
+For **frontend development only**, run `npm install` and `npm run dev` inside
+`frontend`. To update the checked-in, Flask-served frontend after changing
+React source, run `npm run build` from `frontend`. Normal app use still requires
+only `python app.py`.
+
+## Accounts and roles
+
+- Customers enter an email and verify a one-time code to sign in or create an
+  account. No password login is provided.
+- Set `NIMBUS_ADMIN_EMAIL` in `.env` to identify the administrator account.
+  The address receives admin privileges after its owner verifies an email OTP.
+- Admins can inspect platform-wide request totals, approximate unique browsers,
+  per-account usage counts, successful response rate, and average response time.
+  Admin APIs do not list customer websites, URLs, knowledge content, or
+  individual visitor requests. Website workspace APIs only return workspaces
+  owned by the signed-in account.
+- Admins can suspend or delete customer accounts, assign plans and website
+  allowances, and set subscription expiry dates.
+
+## Plans and usage
+
+- **Free:** 30 chat requests per account per calendar month by default and one website.
+- **Pro** and **Custom:** prices are editable by administrators, per website per
+  month. Custom subscriptions require at least two websites. Admins configure
+  discounts for 1, 2, 6, and 12-month terms.
+- Customers can request 1–100 website slots. Only the allowance approved by an
+  administrator is activated. The administrator may adjust the site count
+  before approving a payment.
+- Set `NIMBUS_FREE_REQUESTS_PER_MONTH` in `.env` to change the free allowance;
+  setting it to `0` removes the monthly request cap.
+
+### USDT payment review
+
+The admin dashboard lets administrators configure receiving wallet addresses
+for TRC20, ERC20, and BEP20 and choose pricing and term discounts. Customers
+select a configured network, plan, term, and website count, send the displayed
+USDT amount, and submit the transaction hash. A locally generated QR code
+encodes the configured wallet address. Always independently verify the
+transaction, token, amount, recipient, and chain in a trusted wallet or
+explorer before approving. The app does **not** automatically verify blockchain
+payments or custody funds.
+
+Pending requests appear in the admin dashboard and trigger an email to
+`NIMBUS_ADMIN_EMAIL`. On review, administrators may set the actual active
+website allowance and include a response. That response is shown in the
+customer billing dashboard and sent by email. SMTP must be configured for
+notifications. A failed notification is reported in the API response; the
+recorded payment remains visible in the dashboard.
+
+USDT values are calculated as a 1:1 equivalent of USD pricing. No exchange-rate
+feed, blockchain transaction verification, refund workflow, or payment
+processor is connected. Do not treat this manual-review flow as automated
+payment processing.
+
+Each chat request is logged with the owning account, website, anonymous
+browser-generated visitor ID, UTC timestamp, outcome, and model-response
+latency. Browser IDs approximate unique visitors; they are not verified human
+identities and can be cleared or changed by the visitor.
+
+## Website knowledge and widget
+
+1. Open **Knowledge base**, enter a business name and public website URL, and
+   select **Fetch website content**. The importer reads the homepage and at most
+   four relevant, same-host public HTML pages. Review the imported text and
+   save it before using the assistant.
+2. Open **Install widget** and place its unique script snippet before the
+   website's closing `</body>` tag.
+3. The floating widget streams Ollama responses and safely renders Markdown
+   formatting such as **bold**, headings, lists, links, tables, and code.
+
+To test the widget from a local `.html` file, make the script URL point to the
+Flask server, for example `http://127.0.0.1:5000/widget.js`. Do not use the Vite
+development-server address (`:5173`) in a standalone file: its development
+proxy is intended for a page opened from Vite, and a `file://` page has the
+special browser origin `null`. Flask already provides the CORS preflight
+headers required by the standalone widget.
+
+Business information stays server-side and is sent as context to the small
+model at answer time; this is retrieval, not model fine-tuning.
+
+## Environment reference
+
+See `.env.example` for SMTP settings, the admin email, `NIMBUS_SECRET_KEY`,
+`NIMBUS_DB_PATH`, `NIMBUS_COOKIE_SECURE`, `NIMBUS_FREE_REQUESTS_PER_MONTH`,
+`OLLAMA_URL`, and `OLLAMA_MODEL`.
+Set `NIMBUS_COOKIE_SECURE=true` when serving the dashboard over HTTPS.
+
+For production, set `NIMBUS_ENV=production`, use a stable random
+`NIMBUS_SECRET_KEY` of at least 32 characters, and set
+`NIMBUS_COOKIE_SECURE=true`. The app refuses to start in production without
+those settings and refuses to run Flask's development server in production.
+Install dependencies, build the frontend, then start the WSGI server behind an
+HTTPS reverse proxy:
+
+```powershell
+waitress-serve --host=127.0.0.1 --port=5000 app:app
+```
+
+Before a real launch, configure HTTPS, SMTP, database backups, operational
+monitoring, request limits appropriate for your traffic, and a database sized
+for your deployment. The website importer pins connections to validated public
+IP addresses, rejects non-public DNS results, rechecks redirects, and preserves
+TLS certificate verification. Public widget endpoints remain unauthenticated
+so customer websites can call them; customer dashboard APIs and account data
+require OTP authentication and CSRF validation.
+
+No application can be guaranteed free of security issues. This implementation
+adds specific protections, but needs deployment-specific review, monitoring,
+and ongoing updates before being described as fully production-ready.
