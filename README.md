@@ -132,7 +132,9 @@ identities and can be cleared or changed by the visitor.
 2. Open **Install widget** and place its unique script snippet before the
    website's closing `</body>` tag.
 3. The floating widget streams Ollama responses and safely renders Markdown
-   formatting such as **bold**, headings, lists, links, tables, and code.
+   formatting such as **bold**, headings, lists, links, tables, and code. It
+   can answer in English or Urdu, follows the visitor's language, and supports
+   both Urdu script and Roman Urdu.
 
 To test the widget from a local `.html` file, make the script URL point to the
 Flask server, for example `http://127.0.0.1:5000/widget.js`. Do not use the Vite

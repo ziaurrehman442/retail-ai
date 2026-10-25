@@ -149,13 +149,13 @@ function Chat({
         {!ready && <div className="chat-empty-hint">Add business information to start testing your assistant.</div>}
         {messages.map((message, index) => <div className={`chat-message ${message.role}`} key={`${index}-${message.role}`}>
           {message.role === "assistant" && <span className="mini-chat-logo"><Icon name="spark" /></span>}
-          <div className="bubble">{message.content
+          <div className="bubble" dir="auto">{message.content
             ? message.role === "assistant" ? <Markdown>{message.content}</Markdown> : message.content
             : busy ? <span className="thinking-dots"><i /><i /><i /></span> : null}</div>
         </div>)}
         {messages.length === 1 && ready && <div className="quick-questions"><button onClick={() => void send("What does your business do?")}>What do you offer?</button><button onClick={() => void send("What are your business hours?")}>Opening hours</button></div>}
       </div>
-      <form className="chat-input" onSubmit={submit}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder={ready ? "Ask us anything..." : "Add business details to chat"} aria-label="Ask the assistant" disabled={!ready || busy} /><button aria-label="Send message" disabled={!ready || busy || !input.trim()}><Icon name="send" /></button></form>
+      <form className="chat-input" onSubmit={submit}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder={ready ? "Ask in English or Urdu..." : "Add business details to chat"} aria-label="Ask the assistant" disabled={!ready || busy} /><button aria-label="Send message" disabled={!ready || busy || !input.trim()}><Icon name="send" /></button></form>
       <div className="powered-by">POWERED BY <b>nexa</b> ✦</div>
     </div>
   );
@@ -168,7 +168,7 @@ export default function App() {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [activeId, setActiveId] = useState("");
   const [page, setPage] = useState<Page>("Overview");
-  const [messages, setMessages] = useState<Message[]>([{ role: "assistant", content: "Hi there! 👋 I'm your AI assistant. How can I help you today?" }]);
+  const [messages, setMessages] = useState<Message[]>([{ role: "assistant", content: "Hi there! 👋 Ask me in English or Urdu. آپ انگریزی یا اردو میں سوال پوچھ سکتے ہیں۔" }]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [crawling, setCrawling] = useState(false);
@@ -220,7 +220,7 @@ export default function App() {
   }, [authUser]);
 
   useEffect(() => {
-    setMessages([{ role: "assistant", content: `Hi there! 👋 I'm the ${activeSite?.name || "AI"} assistant. How can I help you today?` }]);
+    setMessages([{ role: "assistant", content: `Hi there! 👋 I'm the ${activeSite?.name || "AI"} assistant. Ask me in English or Urdu. آپ انگریزی یا اردو میں سوال پوچھ سکتے ہیں۔` }]);
   }, [activeId, activeSite?.name]);
 
   useEffect(() => {

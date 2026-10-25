@@ -1834,7 +1834,13 @@ def chat():
                 " Answer using only the business information below. If the answer is not"
                 " present, say you do not know and suggest contacting the business. Never"
                 " invent policies, prices, order statuses, or contact details. Be warm,"
-                " concise, and clear.\n\n"
+                " concise, and clear. Support both English and Urdu. Reply in the same"
+                " language as the visitor's latest message: use natural Urdu script for"
+                " Urdu written in Urdu script, and Roman Urdu when the visitor writes in"
+                " Roman Urdu. If the latest message meaningfully mixes Urdu and English,"
+                " give a concise bilingual answer. Do not duplicate a single-language"
+                " answer with an unnecessary translation. Preserve business names and"
+                " product names as written in the business information.\n\n"
                 f"Business information:\n{site['knowledge']}"
             ),
         }

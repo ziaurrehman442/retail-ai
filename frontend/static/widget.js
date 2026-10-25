@@ -66,7 +66,7 @@
     <section class="panel" role="dialog" aria-label="Customer support chat" aria-modal="false">
       <header class="head"><span class="logo">✳</span><div class="title"><span class="business">AI assistant</span><span class="online"><i></i> Online · usually replies instantly</span></div><button class="close" aria-label="Close chat">×</button></header>
       <div class="messages" aria-live="polite"><div class="day">TODAY</div></div>
-      <form class="composer"><input aria-label="Your message" placeholder="Ask us anything..." maxlength="4000" autocomplete="off"><button aria-label="Send message" disabled>➤</button></form>
+      <form class="composer"><input aria-label="Your message" placeholder="Ask in English or Urdu..." maxlength="4000" autocomplete="off"><button aria-label="Send message" disabled>➤</button></form>
       <div class="powered">POWERED BY <b>nexa</b> ✦</div>
     </section>`;
 
@@ -287,6 +287,7 @@
     }
     const bubble = document.createElement("div");
     bubble.className = "bubble";
+    bubble.dir = "auto";
     if (role === "assistant") bubble.classList.add("markdown");
     if (thinking) {
       bubble.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
@@ -374,10 +375,10 @@
     })
     .then((site) => {
       shadow.querySelector(".business").textContent = site.name;
-      addMessage("assistant", `Hi there! 👋 I'm the ${site.name} assistant. How can I help you today?`);
+      addMessage("assistant", `Hi there! 👋 I'm the ${site.name} assistant. Ask me in English or Urdu. آپ انگریزی یا اردو میں سوال پوچھ سکتے ہیں۔`);
       const shortcuts = document.createElement("div");
       shortcuts.className = "quick";
-      ["What do you offer?", "How can I contact you?"].forEach((question) => {
+      ["What do you offer?", "How can I contact you?", "آپ کیا خدمات فراہم کرتے ہیں؟", "رابطہ کیسے کیا جا سکتا ہے؟"].forEach((question) => {
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = question;

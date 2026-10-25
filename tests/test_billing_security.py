@@ -355,6 +355,43 @@ class NimbusSecurityAndBillingTests(unittest.TestCase):
         self.assertIn(b"The assistant is temporarily unavailable.", response.data)
         self.assertNotIn(b"secret-model-name-123", response.data)
 
+    def test_chat_prompt_supports_english_urdu_and_roman_urdu(self):
+        customer, customer_csrf = self.sign_in("chat-language@example.test")
+        site = customer.get("/api/sites").get_json()[0]
+        saved = customer.put(
+            f"/api/sites/{site['id']}",
+            headers={"X-CSRF-Token": customer_csrf},
+            json={
+                "name": "Chat language test",
+                "website": "",
+                "knowledge": "Business support details.",
+            },
+        )
+        self.assertEqual(saved.status_code, 200)
+        upstream = Mock()
+        upstream.iter_lines.return_value = [
+            json.dumps({"message": {"content": "ہماری کاروباری معلومات دیکھیں۔"}}).encode(),
+            json.dumps({"done": True}).encode(),
+        ]
+        with patch.object(nimbus.requests, "post", return_value=upstream) as post:
+            response = nimbus.app.test_client().post(
+                "/api/chat",
+                json={
+                    "site_id": site["id"],
+                    "visitor_id": "visitoridentifier123",
+                    "messages": [{"role": "user", "content": "آپ کے اوقات کیا ہیں؟"}],
+                },
+            )
+            response.data
+
+        self.assertEqual(response.status_code, 200)
+        system_prompt = post.call_args.kwargs["json"]["messages"][0]["content"]
+        self.assertIn("Support both English and Urdu", system_prompt)
+        self.assertIn("natural Urdu script", system_prompt)
+        self.assertIn("Roman Urdu", system_prompt)
+        self.assertIn("same language as the visitor's latest message", system_prompt)
+        self.assertIn("bilingual answer", system_prompt)
+
     def test_response_latency_measures_time_to_first_text_not_stream_completion(self):
         customer, customer_csrf = self.sign_in("first-response@example.test")
         site = customer.get("/api/sites").get_json()[0]
