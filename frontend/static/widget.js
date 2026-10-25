@@ -2,13 +2,13 @@
   const script = document.currentScript;
   const siteId = script?.dataset.siteId;
   if (!siteId || !script) {
-    console.error("Nimbus widget needs a data-site-id on its script tag.");
+    console.error("Nexa widget needs a data-site-id on its script tag.");
     return;
   }
 
   const apiBase = new URL(script.src).origin;
   const host = document.createElement("div");
-  host.setAttribute("data-nimbus-widget", "");
+  host.setAttribute("data-nexa-widget", "");
   document.body.appendChild(host);
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = `
@@ -67,7 +67,7 @@
       <header class="head"><span class="logo">✳</span><div class="title"><span class="business">AI assistant</span><span class="online"><i></i> Online · usually replies instantly</span></div><button class="close" aria-label="Close chat">×</button></header>
       <div class="messages" aria-live="polite"><div class="day">TODAY</div></div>
       <form class="composer"><input aria-label="Your message" placeholder="Ask us anything..." maxlength="4000" autocomplete="off"><button aria-label="Send message" disabled>➤</button></form>
-      <div class="powered">POWERED BY <b>nimbus</b> ✦</div>
+      <div class="powered">POWERED BY <b>nexa</b> ✦</div>
     </section>`;
 
   const launcher = shadow.querySelector(".launcher");
@@ -81,7 +81,7 @@
   let busy = false;
   let visitorId;
   try {
-    const visitorKey = `nimbus-visitor-${siteId}`;
+    const visitorKey = `nexa-visitor-${siteId}`;
     visitorId = window.localStorage.getItem(visitorKey) || window.crypto.randomUUID().replace(/-/g, "");
     window.localStorage.setItem(visitorKey, visitorId);
   } catch {
@@ -387,7 +387,7 @@
       messagesNode.appendChild(shortcuts);
     })
     .catch((error) => {
-      console.error("Nimbus widget could not load the website assistant.", error);
+      console.error("Nexa widget could not load the website assistant.", error);
       addMessage("assistant", "Sorry, this chat assistant is temporarily unavailable.");
     });
 })();

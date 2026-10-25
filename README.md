@@ -1,6 +1,6 @@
-# Nimbus website chat
+# Nexa website chat
 
-Nimbus is a React dashboard and embeddable customer chat widget backed by a
+Nexa is a React dashboard and embeddable customer chat widget backed by a
 Python/Flask API, SQLite, and a small local Ollama model. Flask serves the
 prebuilt React files, so the deployed app does **not** need a separate React
 server.
@@ -48,7 +48,7 @@ After deploying on your real domain, verify the homepage and sitemap in Google
 Search Console and Bing Webmaster Tools, then request indexing. Rankings for
 terms such as “retail AI” or “AI chatbot for retail” depend on the real domain,
 competition, useful content, and external signals; metadata cannot guarantee a
-ranking. Nimbus supports general business websites, and the homepage describes
+ranking. Nexa supports general business websites, and the homepage describes
 the retail chatbot use case without claiming unsupported retail-specific
 integrations.
 

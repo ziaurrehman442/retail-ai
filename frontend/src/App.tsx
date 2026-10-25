@@ -54,7 +54,7 @@ function Icon({ name }: { name: string }) {
 }
 
 function getVisitorId(siteId: string) {
-  const key = `nimbus-visitor-${siteId}`;
+  const key = `nexa-visitor-${siteId}`;
   try {
     const existing = window.localStorage.getItem(key);
     if (existing) return existing;
@@ -156,7 +156,7 @@ function Chat({
         {messages.length === 1 && ready && <div className="quick-questions"><button onClick={() => void send("What does your business do?")}>What do you offer?</button><button onClick={() => void send("What are your business hours?")}>Opening hours</button></div>}
       </div>
       <form className="chat-input" onSubmit={submit}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder={ready ? "Ask us anything..." : "Add business details to chat"} aria-label="Ask the assistant" disabled={!ready || busy} /><button aria-label="Send message" disabled={!ready || busy || !input.trim()}><Icon name="send" /></button></form>
-      <div className="powered-by">POWERED BY <b>nimbus</b> ✦</div>
+      <div className="powered-by">POWERED BY <b>nexa</b> ✦</div>
     </div>
   );
 }
@@ -370,7 +370,7 @@ export default function App() {
   return (
     <main className="app-shell">
       <aside className="sidebar">
-        <a className="brand" href="#overview" onClick={(event) => { event.preventDefault(); navigate("Overview"); }}><span className="brand-mark">✳</span><span>nimbus<span className="brand-period">.</span></span></a>
+        <a className="brand" href="#overview" onClick={(event) => { event.preventDefault(); navigate("Overview"); }}><span className="brand-mark">✳</span><span>nexa<span className="brand-period">.</span></span></a>
         <div className="side-caption">WORKSPACE</div>
         <label className="workspace-switch"><span className="workspace-initial">{activeSite?.name?.[0]?.toUpperCase() || "N"}</span><span className="workspace-meta"><b>{activeSite?.name || (loading ? "Loading..." : "No websites")}</b><small>{usage?.plan || authUser.plan} plan · {sites.length} site{sites.length === 1 ? "" : "s"}</small></span><span className="switch-chevron">⌄</span><select aria-label="Select a website" value={activeId} onChange={(event) => setActiveId(event.target.value)}>{sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
         <div className="side-caption side-caption-gap">BUILD</div><nav className="side-nav" aria-label="Main navigation">
@@ -400,7 +400,7 @@ export default function App() {
           {page === "Settings" && <section className="page-view active"><div className="page-heading"><div><div className="eyebrow">YOUR WORKSPACE</div><h1>Settings</h1><p>Manage your account, plan, and website workspaces.</p></div></div><div className="settings-layout"><BillingPanel csrfToken={csrfToken} /><article className="form-card"><div className="form-title"><span className="form-icon"><Icon name="settings" /></span><div><h3>Website workspaces</h3><p>Your active website allowance is shown in Plans and usage.</p></div></div><div className="workspace-list">{sites.map((site) => <button className={`workspace-row ${site.id === activeId ? "selected" : ""}`} key={site.id} onClick={() => { setActiveId(site.id); navigate("Knowledge base"); }}><span className="workspace-initial">{site.name[0]?.toUpperCase() || "N"}</span><span><b>{site.name}</b><small>{site.website || "No website address"}</small></span><span className="row-arrow">↗</span></button>)}</div><form className="new-site-form" onSubmit={(event) => void addSite(event)}><label htmlFor="new-site-name">Add a website workspace</label><div><input id="new-site-name" placeholder="Business name" required maxLength={100} value={newName} onChange={(event) => setNewName(event.target.value)} /><input placeholder="Website URL (optional)" maxLength={300} value={newWebsite} onChange={(event) => setNewWebsite(event.target.value)} /><button className="button-primary">+ Add website</button></div></form></article></div></section>}
 
           {page === "Admin" && authUser.role === "admin" && <AdminPanel csrfToken={csrfToken} />}
-          <footer className="page-footer"><span>© 2026 Nimbus AI</span><span><button onClick={() => navigate("Settings")}>Plans and billing</button><button onClick={() => navigate("Install widget")}>Widget installation</button></span></footer>
+          <footer className="page-footer"><span>© 2026 Nexa AI</span><span><button onClick={() => navigate("Settings")}>Plans and billing</button><button onClick={() => navigate("Install widget")}>Widget installation</button></span></footer>
         </div>
       </section>
 

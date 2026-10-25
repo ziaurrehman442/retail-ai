@@ -405,12 +405,12 @@ class NimbusSecurityAndBillingTests(unittest.TestCase):
     def test_flask_serves_built_homepage(self):
         response = nimbus.app.test_client().get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Nimbus", response.data)
+        self.assertIn(b"Nexa", response.data)
         self.assertIn(b"AI Chatbot for Retail Websites", response.data)
         self.assertIn(b"<noscript>", response.data)
         self.assertIn(b"ecommerce website", response.data)
         embedded_plans = re.search(
-            rb"window\.NIMBUS_PUBLIC_PLANS=(\{.*?\});",
+            rb"window\.NEXA_PUBLIC_PLANS=(\{.*?\});",
             response.data,
             re.DOTALL,
         )
@@ -419,7 +419,7 @@ class NimbusSecurityAndBillingTests(unittest.TestCase):
         self.assertIn(b'rel="canonical"', response.data)
         expected_base = nimbus.PUBLIC_URL or "http://localhost"
         self.assertIn(f'href="{expected_base}/"'.encode(), response.data)
-        self.assertNotIn(b"__NIMBUS_PUBLIC_URL__", response.data)
+        self.assertNotIn(b"__NEXA_PUBLIC_URL__", response.data)
         structured = re.search(
             rb'<script type="application/ld\+json">(.*?)</script>',
             response.data,

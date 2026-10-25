@@ -24,6 +24,7 @@ from urllib.parse import urldefrag, urljoin, urlsplit, urlunsplit
 
 import requests
 from flask import Flask, Response, g, jsonify, request, session, send_from_directory, stream_with_context
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 BASE_DIR = Path(__file__).resolve().parent
 from dotenv import load_dotenv
@@ -64,6 +65,7 @@ DEFAULT_BILLING_SETTINGS = {
 }
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 production_mode = os.environ.get("NIMBUS_ENV", "").lower() == "production"
 configured_secret = os.environ.get("NIMBUS_SECRET_KEY", "").strip()
 if production_mode and len(configured_secret) < 32:
@@ -83,8 +85,11 @@ app.config.update(
 @contextmanager
 def connect_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
+    connection = sqlite3.connect(DB_PATH, timeout=10)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA busy_timeout = 10000")
+    connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute("PRAGMA synchronous = NORMAL")
     try:
         yield connection
         connection.commit()
@@ -266,7 +271,6 @@ def public_site(site):
     return {
         "id": site["id"],
         "name": site["name"],
-        "website": site["website"],
     }
 
 
@@ -402,7 +406,7 @@ def fetch_public_page(session, url):
                 path,
                 headers={
                     "Host": parsed.hostname,
-                    "User-Agent": "NimbusWebsiteAssistant/1.0 (+website knowledge import)",
+                    "User-Agent": "NexaWebsiteAssistant/1.0 (+website knowledge import)",
                     "Accept": "text/html,application/xhtml+xml",
                     "Accept-Encoding": "identity",
                     "Connection": "close",
@@ -589,6 +593,15 @@ def add_months(value, months):
     return value.replace(year=year, month=month, day=day)
 
 
+def validate_smtp_transport(smtp_username, smtp_password, smtp_ssl, starttls):
+    if smtp_ssl and starttls:
+        raise RuntimeError("Enable either implicit SMTP SSL or STARTTLS, not both.")
+    if bool(smtp_username) != bool(smtp_password):
+        raise RuntimeError("Set both NIMBUS_SMTP_USERNAME and NIMBUS_SMTP_PASSWORD, or leave both blank.")
+    if smtp_username and not (smtp_ssl or starttls):
+        raise RuntimeError("SMTP authentication requires a secure connection.")
+
+
 def send_admin_notification(subject, body):
     recipient = os.environ.get("NIMBUS_ADMIN_EMAIL", "").strip()
     if not recipient:
@@ -604,6 +617,7 @@ def send_admin_notification(subject, body):
     ).lower() == "true"
     if not smtp_host or not sender:
         raise RuntimeError("Email delivery is not configured.")
+    validate_smtp_transport(smtp_username, smtp_password, smtp_ssl, starttls)
     message = EmailMessage()
     message["Subject"] = subject
     message["From"] = sender
@@ -637,6 +651,7 @@ def send_customer_payment_email(email, subject, body):
     ).lower() == "true"
     if not smtp_host or not sender:
         raise RuntimeError("Email delivery is not configured.")
+    validate_smtp_transport(smtp_username, smtp_password, smtp_ssl, starttls)
     message = EmailMessage()
     message["Subject"] = subject
     message["From"] = sender
@@ -808,11 +823,11 @@ def send_login_code(email, code):
         )
 
     message = EmailMessage()
-    message["Subject"] = "Your Nimbus sign-in code"
+    message["Subject"] = "Your Nexa sign-in code"
     message["From"] = sender
     message["To"] = email
     message.set_content(
-        f"Your Nimbus sign-in code is {code}.\n\n"
+        f"Your Nexa sign-in code is {code}.\n\n"
         "This code expires in 10 minutes. If you did not request it, you can ignore this email."
     )
     context = ssl.create_default_context()
@@ -961,6 +976,8 @@ def logout():
 
 @app.after_request
 def add_public_widget_headers(response):
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
     if request.path.startswith("/api/public/") or request.path == "/api/chat":
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
@@ -977,7 +994,7 @@ def index():
         structured_data = {
             "@context": "https://schema.org",
             "@type": "SoftwareApplication",
-            "name": "Nimbus",
+            "name": "Nexa",
             "applicationCategory": "BusinessApplication",
             "operatingSystem": "Web",
             "url": f"{base_url}/",
@@ -994,9 +1011,9 @@ def index():
             ],
         }
         escaped_base_url = html_module.escape(base_url, quote=True)
-        html = html.replace("__NIMBUS_PUBLIC_URL__", escaped_base_url)
+        html = html.replace("__NEXA_PUBLIC_URL__", escaped_base_url)
         html = html.replace(
-            "__NIMBUS_STRUCTURED_DATA__",
+            "__NEXA_STRUCTURED_DATA__",
             json.dumps(structured_data, separators=(",", ":")).replace("<", "\\u003c"),
         )
         public_plans_json = json.dumps(
@@ -1009,7 +1026,7 @@ def index():
             .replace("\u2028", "\\u2028")
             .replace("\u2029", "\\u2029")
         )
-        html = html.replace("__NIMBUS_PUBLIC_PLANS__", public_plans_json)
+        html = html.replace("__NEXA_PUBLIC_PLANS__", public_plans_json)
         response = Response(html, mimetype="text/html")
         response.headers["Cache-Control"] = "public, max-age=300"
         return response
@@ -1377,12 +1394,12 @@ def create_payment_order():
     notification_warning = None
     try:
         send_admin_notification(
-            f"Nimbus USDT payment review: {g.user['email']}",
+            f"Nexa USDT payment review: {g.user['email']}",
             (
                 f"Account: {g.user['email']}\nPlan: {plan['name']}\nTerm: {months} months\n"
                 f"Requested websites: {websites}\nAmount: {amount:.2f} USDT equivalent\n"
                 f"Network: {network}\nWallet: {wallet}\nTransaction hash: {transaction_hash}\n"
-                f"Order ID: {order_id}\n\nReview this payment in the Nimbus admin dashboard."
+                f"Order ID: {order_id}\n\nReview this payment in the Nexa admin dashboard."
             ),
         )
     except (OSError, smtplib.SMTPException, RuntimeError, ValueError) as error:
@@ -1565,7 +1582,7 @@ def review_payment_order(order_id):
     try:
         send_customer_payment_email(
             customer_email,
-            f"Nimbus payment {status}",
+            f"Nexa payment {status}",
             (
                 f"Your {plan_name} payment request for {order['amount_usd']:.2f} USDT "
                 f"({order['term_months']} months) was {status}.\n"
@@ -1664,18 +1681,13 @@ def delete_admin_user(user_id):
             if not exists:
                 return jsonify(error="This account could not be found."), 404
             return jsonify(error="Another administrator account cannot be deleted here."), 403
-        owned_site_ids = [
-            row["id"] for row in connection.execute(
-                "SELECT id FROM sites WHERE owner_id = ?", (user_id,)
-            ).fetchall()
-        ]
-        connection.execute("DELETE FROM chat_requests WHERE owner_id = ?", (user_id,))
-        if owned_site_ids:
-            placeholders = ",".join("?" for _ in owned_site_ids)
-            connection.execute(
-                f"DELETE FROM chat_requests WHERE site_id IN ({placeholders})",
-                owned_site_ids,
-            )
+        connection.execute(
+            """
+            DELETE FROM chat_requests
+            WHERE owner_id = ? OR site_id IN (SELECT id FROM sites WHERE owner_id = ?)
+            """,
+            (user_id, user_id),
+        )
         connection.execute("DELETE FROM sites WHERE owner_id = ?", (user_id,))
         connection.execute("DELETE FROM plan_requests WHERE user_id = ?", (user_id,))
         connection.execute("DELETE FROM payment_orders WHERE user_id = ?", (user_id,))
@@ -1862,9 +1874,14 @@ def chat():
     try:
         upstream = requests.post(
             f"{OLLAMA_URL}/api/chat",
-            json={"model": OLLAMA_MODEL, "messages": messages, "stream": True},
+            json={
+                "model": OLLAMA_MODEL,
+                "messages": messages,
+                "stream": True,
+                "keep_alive": "24h",
+            },
             stream=True,
-            timeout=(5, 180),
+            timeout=(5, 300),
         )
         upstream.raise_for_status()
     except requests.RequestException as error:
@@ -1917,8 +1934,8 @@ def chat():
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "X-Nimbus-Requests-Used": str(usage),
-            "X-Nimbus-Requests-Limit": str(limit) if limit is not None else "unlimited",
+            "X-Nexa-Requests-Used": str(usage),
+            "X-Nexa-Requests-Limit": str(limit) if limit is not None else "unlimited",
         },
     )
 
