@@ -31,7 +31,11 @@ type UserDraft = Pick<MetricUser, "plan" | "status" | "website_limit"> & { subsc
 type ReviewDraft = { activated_websites: number; admin_note: string };
 
 function latency(value: number | null) {
-  return value === null ? "—" : value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`;
+  return value === null
+    ? "—"
+    : value < 1000
+      ? `${Math.round(value)} ms`
+      : `${Number((value / 1000).toFixed(2))} sec`;
 }
 
 function dateTimeValue(value: string | null) {
@@ -208,7 +212,7 @@ export function AdminPanel({ csrfToken }: { csrfToken: string }) {
           <article className="stat-card"><div className="stat-top"><span>Chat requests</span><i className="stat-icon lavender">↗</i></div><div className="stat-number">{metrics.totals.requests.toLocaleString()}</div><div className="stat-description">Requests in selected period</div></article>
           <article className="stat-card"><div className="stat-top"><span>Unique visitors</span><i className="stat-icon green">◉</i></div><div className="stat-number">{metrics.totals.visitors.toLocaleString()}</div><div className="stat-description">Approximate visitor browsers</div></article>
           <article className="stat-card"><div className="stat-top"><span>Successful responses</span><i className="stat-icon peach">✓</i></div><div className="stat-number">{metrics.totals.requests ? `${Math.round(metrics.totals.successful / metrics.totals.requests * 100)}%` : "—"}</div><div className="stat-description">{metrics.totals.unsuccessful} failed or incomplete</div></article>
-          <article className="stat-card"><div className="stat-top"><span>Average response</span><i className="stat-icon yellow">◷</i></div><div className="stat-number stat-latency">{latency(metrics.totals.avg_response_ms)}</div><div className="stat-description">Average time to complete a response</div></article>
+          <article className="stat-card"><div className="stat-top"><span>Avg. time to first response</span><i className="stat-icon yellow">◷</i></div><div className="stat-number stat-latency">{latency(metrics.totals.avg_response_ms)}</div><div className="stat-description">Average wait until the first answer text</div></article>
         </div>
         <article className="panel admin-chart-panel"><div className="panel-heading"><div><h3>Requests per day</h3><p>Requests and distinct browser visitors, by UTC day</p></div><button className="admin-refresh" onClick={() => void refresh()}>Refresh</button></div>
           {metrics.daily.length ? <div className="daily-chart">{metrics.daily.map((item) => <div className="daily-bar-wrap" key={item.day} title={`${item.day}: ${item.requests} requests, ${item.visitors} visitors`}><span>{item.requests}</span><i style={{ height: `${Math.max(4, item.requests / maxDaily * 100)}%` }} /><small>{item.day.slice(5)}</small></div>)}</div> : <div className="admin-empty">No chat requests have been recorded yet.</div>}

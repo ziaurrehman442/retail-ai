@@ -181,16 +181,14 @@ export default function App() {
   const isTrained = knowledge.trim().length > 0;
 
   useEffect(() => {
-    api<{ user: AuthUser; csrf_token: string }>("/api/auth/me")
+    api<{ authenticated: boolean; user?: AuthUser; csrf_token?: string }>("/api/auth/me")
       .then((result) => {
-        csrfToken = result.csrf_token;
-        setAuthUser(result.user);
-      })
-      .catch((cause: unknown) => {
-        if (cause instanceof Error && cause.message !== "Please sign in to continue.") {
-          setError(cause.message);
+        if (result.authenticated && result.user && result.csrf_token) {
+          csrfToken = result.csrf_token;
+          setAuthUser(result.user);
         }
       })
+      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Could not check sign-in status."))
       .finally(() => setAuthReady(true));
   }, []);
 
@@ -339,7 +337,7 @@ export default function App() {
     ? "—"
     : usage.avg_response_ms < 1000
       ? `${Math.round(usage.avg_response_ms)} ms`
-      : `${(usage.avg_response_ms / 1000).toFixed(2)} sec`;
+      : `${Number((usage.avg_response_ms / 1000).toFixed(2))} sec`;
   const successRate = usage && usage.requests
     ? `${Math.round(usage.successful / usage.requests * 100)}%`
     : usage ? "—" : "…";
@@ -391,7 +389,7 @@ export default function App() {
             <div className="page-heading"><div><div className="eyebrow">YOUR AI SUPPORT WORKSPACE</div><h1>Good morning <span className="heading-spark">✳</span></h1><p>Set up your assistant, then let it take care of the questions.</p></div><button className="button-primary" onClick={() => navigate("Install widget")}><Icon name="code" /> <span>Install widget</span></button></div>
             <section className="welcome-banner"><div className="banner-decoration decor-one" /><div className="banner-decoration decor-two" /><div className="banner-copy"><div className="banner-kicker"><span>✦</span> YOUR AI ASSISTANT IS READY</div><h2>Your always-on<br />support team starts here.</h2><p>Teach your assistant about your business, then add it to your website in minutes.</p><button onClick={() => navigate("Knowledge base")}>Add your website details <span>→</span></button></div><div className="banner-art"><div className="art-card art-back"><i /><span /><span /></div><div className="art-card art-front"><span className="art-avatar">✳</span><span className="art-lines"><i /><i /></span><span className="art-chat">How can I help? <b>✦</b></span></div><span className="art-star">✦</span><span className="art-spark">✳</span></div></section>
             <div className="section-heading"><div><h2>Overview</h2><p>Your assistant at a glance</p></div><button className="select-period">Last 7 days <span>⌄</span></button></div>
-            <div className="stats-grid"><article className="stat-card"><div className="stat-top"><span>Chat requests</span><i className="stat-icon lavender">▤</i></div><div className="stat-number">{usage?.requests.toLocaleString() ?? "…"}</div><div className="stat-description">Measured over the last 7 days</div></article><article className="stat-card"><div className="stat-top"><span>Successful answers</span><i className="stat-icon green">✦</i></div><div className="stat-number">{successRate}</div><div className="stat-description">{usage ? `${usage.successful} completed responses` : "Loading response data"}</div></article><article className="stat-card"><div className="stat-top"><span>Avg. response time</span><i className="stat-icon peach">↗</i></div><div className="stat-number stat-latency">{responseTime}</div><div className="stat-description">Measured from request to completion</div></article><article className="stat-card"><div className="stat-top"><span>Website workspaces</span><i className="stat-icon yellow">◎</i></div><div className="stat-number">{usage?.websites ?? "…"}</div><div className="stat-description">Active workspaces on your account</div></article></div>
+            <div className="stats-grid"><article className="stat-card"><div className="stat-top"><span>Chat requests</span><i className="stat-icon lavender">▤</i></div><div className="stat-number">{usage?.requests.toLocaleString() ?? "…"}</div><div className="stat-description">Measured over the last 7 days</div></article><article className="stat-card"><div className="stat-top"><span>Successful answers</span><i className="stat-icon green">✦</i></div><div className="stat-number">{successRate}</div><div className="stat-description">{usage ? `${usage.successful} completed responses` : "Loading response data"}</div></article><article className="stat-card"><div className="stat-top"><span>Time to first response</span><i className="stat-icon peach">↗</i></div><div className="stat-number stat-latency">{responseTime}</div><div className="stat-description">From request until the first answer text</div></article><article className="stat-card"><div className="stat-top"><span>Website workspaces</span><i className="stat-icon yellow">◎</i></div><div className="stat-number">{usage?.websites ?? "…"}</div><div className="stat-description">Active workspaces on your account</div></article></div>
             <div className="lower-grid"><article className="panel activity-panel"><div className="panel-heading"><div><h3>Conversation activity</h3><p>Successful and incomplete requests over the last 7 days</p></div><button className="admin-refresh" onClick={() => void api<Usage>("/api/usage?days=7").then(setUsage).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Could not refresh usage analytics."))}>Refresh</button></div>{usage?.daily.length ? <div className="usage-activity-chart">{usage.daily.map((day) => <div className="usage-activity-day" key={day.day} title={`${day.day}: ${day.requests} requests`}><span>{day.requests}</span><i style={{ height: `${Math.max(5, day.requests / maxActivity * 100)}%` }} /><small>{day.day.slice(5)}</small></div>)}</div> : <div className="chart-placeholder"><div className="chart-center"><span>✦</span><b>{usage ? "No chat requests yet" : "Loading activity…"}</b><small>Request totals will appear after visitors use your widget.</small></div></div>}</article><article className="panel checklist-panel"><div className="panel-heading"><div><h3>Getting started</h3><p>A few steps to get up and running</p></div><span className="steps-count">{doneSteps} of 3</span></div><div className="progress-track"><i style={{ width: `${(doneSteps / 3) * 100}%` }} /></div><div className="checklist"><button onClick={() => navigate("Settings")}><i className="step-check complete">✓</i><span><b>Create your workspace</b><small>Your assistant has a home</small></span></button><button onClick={() => navigate("Knowledge base")}><i className={`step-check ${isTrained ? "complete" : ""}`}>{isTrained ? "✓" : ""}</i><span><b>Teach your assistant</b><small>Add details about your business</small></span><span className="row-arrow">↗</span></button><button onClick={() => navigate("Install widget")}><i className={`step-check ${activeSite?.website ? "complete" : ""}`}>{activeSite?.website ? "✓" : ""}</i><span><b>Add it to your website</b><small>Copy one line of code</small></span><span className="row-arrow">↗</span></button></div></article></div>
           </section>}
 

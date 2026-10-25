@@ -32,6 +32,26 @@ widget are served by Flask from the same origin. The React development server
 is optional. For a separate frontend host, configure a same-origin reverse
 proxy to the Flask API; do not ship a localhost backend URL to customers.
 
+## Search engine setup
+
+The public homepage includes a descriptive title and metadata for search and
+social sharing, SoftwareApplication structured data, `robots.txt`, and an XML
+sitemap at `/sitemap.xml`. Its three plans and public prices are embedded in
+the page, so visitors can view them without signing in or a separate pricing
+API request. Set `NIMBUS_PUBLIC_URL` to the canonical HTTPS
+homepage origin (for example, `https://your-real-domain.example`) in deployment
+configuration. Without it, canonical metadata and the sitemap use the current
+request host; configure a fixed public URL before production to avoid indexing
+staging or alternate hostnames.
+
+After deploying on your real domain, verify the homepage and sitemap in Google
+Search Console and Bing Webmaster Tools, then request indexing. Rankings for
+terms such as “retail AI” or “AI chatbot for retail” depend on the real domain,
+competition, useful content, and external signals; metadata cannot guarantee a
+ranking. Nimbus supports general business websites, and the homepage describes
+the retail chatbot use case without claiming unsupported retail-specific
+integrations.
+
 The email sign-in codes expire after 10 minutes and have request and attempt
 limits. To test on a private development computer without configuring SMTP,
 set `NIMBUS_ALLOW_CONSOLE_OTP=true` in `.env`; codes are then printed in the
@@ -49,7 +69,10 @@ only `python app.py`.
 - Set `NIMBUS_ADMIN_EMAIL` in `.env` to identify the administrator account.
   The address receives admin privileges after its owner verifies an email OTP.
 - Admins can inspect platform-wide request totals, approximate unique browsers,
-  per-account usage counts, successful response rate, and average response time.
+  per-account usage counts, successful response rate, and average time to first
+  response text (from the visitor's request until the first answer text arrives).
+  Only requests recorded after this timing update contribute to the metric;
+  earlier records tracked full completion time instead.
   Admin APIs do not list customer websites, URLs, knowledge content, or
   individual visitor requests. Website workspace APIs only return workspaces
   owned by the signed-in account.
@@ -58,6 +81,10 @@ only `python app.py`.
 
 ## Plans and usage
 
+- The public homepage shows Free (30 requests/month, one website), Pro
+  (unlimited requests, one website, $5/month by default), and Custom (unlimited
+  requests, at least two websites, $4 per website/month by default). Paid prices
+  shown publicly follow the current admin-configured per-site monthly rates.
 - **Free:** 30 chat requests per account per calendar month by default and one website.
 - **Pro** and **Custom:** prices are editable by administrators, per website per
   month. Custom subscriptions require at least two websites. Admins configure
@@ -120,8 +147,8 @@ model at answer time; this is retrieval, not model fine-tuning.
 ## Environment reference
 
 See `.env.example` for SMTP settings, the admin email, `NIMBUS_SECRET_KEY`,
-`NIMBUS_DB_PATH`, `NIMBUS_COOKIE_SECURE`, `NIMBUS_FREE_REQUESTS_PER_MONTH`,
-`OLLAMA_URL`, and `OLLAMA_MODEL`.
+`NIMBUS_DB_PATH`, `NIMBUS_PUBLIC_URL`, `NIMBUS_COOKIE_SECURE`,
+`NIMBUS_FREE_REQUESTS_PER_MONTH`, `OLLAMA_URL`, and `OLLAMA_MODEL`.
 Set `NIMBUS_COOKIE_SECURE=true` when serving the dashboard over HTTPS.
 
 For production, set `NIMBUS_ENV=production`, use a stable random

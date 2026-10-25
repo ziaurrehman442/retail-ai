@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import socket
 import tempfile
 import unittest
@@ -115,15 +116,74 @@ class NimbusSecurityAndBillingTests(unittest.TestCase):
         customer, _csrf = self.sign_in("delete-me@example.test")
         admin_client, admin_csrf = self.admin
         with nimbus.connect_db() as connection:
-            user_id = connection.execute(
-                "SELECT id FROM users WHERE email = 'delete-me@example.test'"
-            ).fetchone()["id"]
+            user = connection.execute(
+                "SELECT id, email FROM users WHERE email = 'delete-me@example.test'"
+            ).fetchone()
+            site_id = customer.get("/api/sites").get_json()[0]["id"]
+            connection.execute(
+                """
+                INSERT INTO chat_requests (id, owner_id, site_id, visitor_id, status)
+                VALUES ('delete-user-chat', ?, ?, 'visitoridentifier123', 'success')
+                """,
+                (user["id"], site_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO plan_requests (id, user_id, requested_plan)
+                VALUES ('delete-user-plan', ?, 'pro')
+                """,
+                (user["id"],),
+            )
+            connection.execute(
+                """
+                INSERT INTO payment_orders
+                    (id, user_id, requested_plan, term_months, requested_websites,
+                     amount_usd, network, wallet_address, transaction_hash)
+                VALUES ('delete-user-payment', ?, 'pro', 1, 1, 5, 'TRC20', ?, ?)
+                """,
+                (user["id"], "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb", "delete-user-transaction"),
+            )
+            user_id = user["id"]
+            email = user["email"]
         response = admin_client.delete(
             f"/api/admin/users/{user_id}",
             headers={"X-CSRF-Token": admin_csrf},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(customer.get("/api/auth/me").status_code, 401)
+        unauthenticated = customer.get("/api/auth/me")
+        self.assertEqual(unauthenticated.status_code, 200)
+        self.assertEqual(unauthenticated.get_json(), {"authenticated": False})
+        with nimbus.connect_db() as connection:
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM users WHERE id = ?", (user_id,)).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM sites WHERE owner_id = ?", (user_id,)).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM chat_requests WHERE owner_id = ? OR site_id = ?",
+                    (user_id, site_id),
+                ).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM plan_requests WHERE user_id = ?", (user_id,)).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute("SELECT COUNT(*) FROM payment_orders WHERE user_id = ?", (user_id,)).fetchone()[0],
+                0,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM login_codes WHERE email = ? COLLATE NOCASE",
+                    (email,),
+                ).fetchone()[0],
+                0,
+            )
 
     def test_admin_workspace_and_metrics_apis_hide_customer_website_details(self):
         customer, customer_csrf = self.sign_in("private-site@example.test")
@@ -139,9 +199,20 @@ class NimbusSecurityAndBillingTests(unittest.TestCase):
         )
         self.assertEqual(updated.status_code, 200)
 
-        admin_client, _csrf = self.admin
+        admin_client, admin_csrf = self.admin
+        own_site = admin_client.post(
+            "/api/sites",
+            headers={"X-CSRF-Token": admin_csrf},
+            json={"name": "Admin's own workspace", "website": ""},
+        )
+        self.assertEqual(own_site.status_code, 201)
         admin_sites = admin_client.get("/api/sites").get_json()
         self.assertNotIn(customer_site["id"], [site["id"] for site in admin_sites])
+        self.assertTrue(admin_sites)
+        self.assertEqual(
+            admin_client.get(f"/api/sites/{admin_sites[0]['id']}").status_code,
+            200,
+        )
         self.assertEqual(admin_client.get(f"/api/sites/{customer_site['id']}").status_code, 404)
         metrics_response = admin_client.get("/api/admin/metrics")
         self.assertEqual(metrics_response.status_code, 200)
@@ -152,6 +223,40 @@ class NimbusSecurityAndBillingTests(unittest.TestCase):
         self.assertNotIn("private-customer-name-84721", serialized)
         self.assertNotIn("private-customer-domain.example.test", serialized)
         self.assertNotIn("private customer knowledge marker 84721", serialized)
+
+    def test_new_account_never_claims_unowned_legacy_workspaces(self):
+        with nimbus.connect_db() as connection:
+            connection.execute(
+                """
+                INSERT INTO sites (id, name, website, knowledge, owner_id)
+                VALUES ('legacy-unowned-site', 'Legacy workspace', 'https://legacy.example.test',
+                        'legacy knowledge', NULL)
+                """
+            )
+        customer, _csrf = self.sign_in("new-owner@example.test")
+        customer_sites = customer.get("/api/sites").get_json()
+        admin_client, _admin_csrf = self.admin
+        admin_sites = admin_client.get("/api/sites").get_json()
+        self.assertEqual(len(customer_sites), 1)
+        self.assertNotEqual(customer_sites[0]["id"], "legacy-unowned-site")
+        self.assertNotIn("legacy-unowned-site", [site["id"] for site in admin_sites])
+        with nimbus.connect_db() as connection:
+            owner_id = connection.execute(
+                "SELECT owner_id FROM sites WHERE id = 'legacy-unowned-site'"
+            ).fetchone()["owner_id"]
+        self.assertIsNone(owner_id)
+
+    def test_existing_empty_account_stays_empty_after_next_sign_in(self):
+        with nimbus.connect_db() as connection:
+            admin_id = connection.execute(
+                "SELECT id FROM users WHERE email = 'admin@example.test'"
+            ).fetchone()["id"]
+            connection.execute("DELETE FROM chat_requests")
+            connection.execute("DELETE FROM sites WHERE owner_id = ?", (admin_id,))
+            connection.execute("DELETE FROM login_codes")
+
+        admin_client, _csrf = self.sign_in("admin@example.test")
+        self.assertEqual(admin_client.get("/api/sites").get_json(), [])
 
     def test_custom_plan_requires_two_websites_in_orders_and_account_edits(self):
         customer, customer_csrf = self.sign_in("custom-minimum@example.test")
@@ -250,11 +355,94 @@ class NimbusSecurityAndBillingTests(unittest.TestCase):
         self.assertIn(b"The assistant is temporarily unavailable.", response.data)
         self.assertNotIn(b"secret-model-name-123", response.data)
 
+    def test_response_latency_measures_time_to_first_text_not_stream_completion(self):
+        customer, customer_csrf = self.sign_in("first-response@example.test")
+        site = customer.get("/api/sites").get_json()[0]
+        saved = customer.put(
+            f"/api/sites/{site['id']}",
+            headers={"X-CSRF-Token": customer_csrf},
+            json={
+                "name": "First response test",
+                "website": "",
+                "knowledge": "Business support details.",
+            },
+        )
+        self.assertEqual(saved.status_code, 200)
+        upstream = Mock()
+
+        def delayed_stream():
+            import time
+
+            time.sleep(0.03)
+            yield json.dumps({"message": {"content": "First answer text"}}).encode()
+            time.sleep(0.08)
+            yield json.dumps({"done": True}).encode()
+
+        upstream.iter_lines.return_value = delayed_stream()
+        with patch.object(nimbus.requests, "post", return_value=upstream):
+            response = nimbus.app.test_client().post(
+                "/api/chat",
+                json={
+                    "site_id": site["id"],
+                    "visitor_id": "visitoridentifier123",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                },
+            )
+            response.data
+
+        with nimbus.connect_db() as connection:
+            timing = connection.execute(
+                """
+                SELECT first_response_ms, response_ms
+                FROM chat_requests WHERE site_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1
+                """,
+                (site["id"],),
+            ).fetchone()
+        self.assertIsNotNone(timing["first_response_ms"])
+        self.assertGreater(timing["response_ms"], timing["first_response_ms"])
+        self.assertGreater(timing["response_ms"] - timing["first_response_ms"], 50)
+
     def test_flask_serves_built_homepage(self):
         response = nimbus.app.test_client().get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Nimbus", response.data)
+        self.assertIn(b"AI Chatbot for Retail Websites", response.data)
+        self.assertIn(b"<noscript>", response.data)
+        self.assertIn(b"ecommerce website", response.data)
+        embedded_plans = re.search(
+            rb"window\.NIMBUS_PUBLIC_PLANS=(\{.*?\});",
+            response.data,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(embedded_plans)
+        self.assertEqual(json.loads(embedded_plans.group(1))["pro"]["price_per_month"], 5)
+        self.assertIn(b'rel="canonical"', response.data)
+        expected_base = nimbus.PUBLIC_URL or "http://localhost"
+        self.assertIn(f'href="{expected_base}/"'.encode(), response.data)
+        self.assertNotIn(b"__NIMBUS_PUBLIC_URL__", response.data)
+        structured = re.search(
+            rb'<script type="application/ld\+json">(.*?)</script>',
+            response.data,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(structured)
+        schema = json.loads(structured.group(1))
+        self.assertEqual(schema["@type"], "SoftwareApplication")
+        self.assertIn("retail", schema["description"].lower())
         response.close()
+
+    def test_robots_and_sitemap_only_expose_public_homepage(self):
+        client = nimbus.app.test_client()
+        robots = client.get("/robots.txt")
+        sitemap = client.get("/sitemap.xml")
+        self.assertEqual(robots.status_code, 200)
+        self.assertIn(b"Disallow: /api/", robots.data)
+        expected_base = nimbus.PUBLIC_URL or "http://localhost"
+        self.assertIn(f"Sitemap: {expected_base}/sitemap.xml".encode(), robots.data)
+        self.assertEqual(sitemap.status_code, 200)
+        self.assertIn(f"<loc>{expected_base}/</loc>".encode(), sitemap.data)
+        self.assertNotIn(b"/api/", sitemap.data)
+        self.assertEqual(sitemap.mimetype, "application/xml")
 
     def test_admin_can_set_configurable_pricing_wallets_and_discounts(self):
         client, csrf = self.admin
@@ -291,6 +479,35 @@ class NimbusSecurityAndBillingTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(client.get("/api/admin/settings").get_json()["billing"]["wallets"], wallets)
+
+    def test_public_plans_show_original_limits_and_current_admin_prices(self):
+        admin_client, csrf = self.admin
+        response = admin_client.put(
+            "/api/admin/settings",
+            headers={"X-CSRF-Token": csrf},
+            json={
+                "plans": {
+                    "pro": {"name": "Pro", "price_per_site_month": 6.25},
+                    "custom": {"name": "Custom", "price_per_site_month": 3.5},
+                },
+                "term_discounts": {"1": 0, "2": 0, "6": 10, "12": 20},
+                "wallets": {"TRC20": "", "ERC20": "", "BEP20": ""},
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+
+        public_response = nimbus.app.test_client().get("/api/public/plans")
+        self.assertEqual(public_response.status_code, 200)
+        plans = public_response.get_json()
+        self.assertEqual(plans["free"]["monthly_requests"], nimbus.FREE_REQUESTS_PER_MONTH or None)
+        self.assertEqual(plans["free"]["websites"], 1)
+        self.assertEqual(plans["pro"]["price_per_month"], 6.25)
+        self.assertEqual(plans["pro"]["websites"], 1)
+        self.assertIsNone(plans["pro"]["monthly_requests"])
+        self.assertEqual(plans["custom"]["price_per_site_month"], 3.5)
+        self.assertEqual(plans["custom"]["minimum_websites"], 2)
+        self.assertNotIn("wallets", plans)
+        self.assertEqual(public_response.headers.get("Access-Control-Allow-Origin"), "*")
 
     def test_payment_review_activates_admin_selected_site_allowance_and_response(self):
         admin_client, admin_csrf = self.admin

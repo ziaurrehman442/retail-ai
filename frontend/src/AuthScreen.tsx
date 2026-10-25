@@ -1,7 +1,19 @@
 import { FormEvent, useEffect, useState } from "react";
 import "./landing.css";
+import "./landing-pricing.css";
 
 type AuthUser = { id: string; email: string; role: "user" | "admin"; plan: "free" | "pro" | "custom" };
+type PublicPlans = {
+  free: { monthly_requests: number | null; websites: number };
+  pro: { price_per_month: number; websites: number };
+  custom: { price_per_site_month: number; minimum_websites: number };
+};
+
+declare global {
+  interface Window {
+    NIMBUS_PUBLIC_PLANS?: PublicPlans;
+  }
+}
 
 export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUser, csrf: string) => void }) {
   const [email, setEmail] = useState("");
@@ -11,6 +23,11 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUs
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [showLogin, setShowLogin] = useState(window.location.hash === "#signin");
+  const [plans] = useState<PublicPlans>(() => window.NIMBUS_PUBLIC_PLANS || {
+    free: { monthly_requests: 30, websites: 1 },
+    pro: { price_per_month: 5, websites: 1 },
+    custom: { price_per_site_month: 4, minimum_websites: 2 },
+  });
 
   useEffect(() => {
     const update = () => setShowLogin(window.location.hash === "#signin");
@@ -34,8 +51,8 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUs
         <section className="marketing-hero">
           <div className="marketing-copy">
             <div className="marketing-kicker"><i /> AI SUPPORT, GROUNDED IN YOUR BUSINESS</div>
-            <h1>Make every website visit feel like a <span>conversation.</span></h1>
-            <p>Give your customers quick, helpful answers with an AI chat widget that knows your website, your services, and your business.</p>
+            <h1>AI chatbots for retail websites that start a <span>conversation.</span></h1>
+            <p>Help online shoppers get quick answers about your products, services, and store policies with a customizable AI chat widget for your retail website.</p>
             <div className="marketing-actions"><button onClick={openLogin}>Create your free workspace <span>→</span></button><a href="#how-it-works">See how it works <span>↓</span></a></div>
             <div className="marketing-proof"><span>✳</span> Easy to install <i /> No password required <i /> Starts with your website content</div>
           </div>
@@ -51,7 +68,11 @@ export function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUs
           <div className="marketing-steps"><article><span>01</span><div className="marketing-step-icon">◎</div><h3>Add your website</h3><p>Import public website content and add the details your assistant should know.</p></article><article><span>02</span><div className="marketing-step-icon">✳</div><h3>Make it yours</h3><p>Preview your assistant and test responses before your customers see it.</p></article><article><span>03</span><div className="marketing-step-icon">‹/›</div><h3>Install one snippet</h3><p>Copy a small embed code and add the floating chat button to your website.</p></article></div>
         </section>
         <section className="marketing-features" id="features"><div><div className="marketing-kicker">A BETTER CUSTOMER EXPERIENCE</div><h2>Helpful, on-brand support.<br />Right where customers need it.</h2><p>Nimbus brings your business information into a friendly chat experience, with thoughtful streaming replies and clear reporting for your team.</p><button onClick={openLogin}>Get started <span>→</span></button></div><ul><li><i>✓</i><span><b>Website-aware answers</b><small>Ground responses in your approved business information.</small></span></li><li><i>✓</i><span><b>Live, natural replies</b><small>Give visitors a smooth chat experience with animated responses.</small></span></li><li><i>✓</i><span><b>Clear usage insights</b><small>Understand request volume, success rate, and response time.</small></span></li><li><i>✓</i><span><b>Keep control</b><small>Manage workspaces and billing from one dashboard.</small></span></li></ul></section>
-        <section className="marketing-pricing" id="pricing"><div className="marketing-section-heading"><div className="marketing-kicker">PLANS THAT FIT YOUR NEEDS</div><h2>Start free. Scale when you’re ready.</h2><p>Choose a free workspace, then explore paid options configured by the Nimbus administrator.</p></div><div className="marketing-plan-cards"><article><span>START HERE</span><h3>Free</h3><p>Try your assistant on one website and see how Nimbus fits your workflow.</p><button onClick={openLogin}>Create a free workspace <span>→</span></button></article><article className="featured"><span>GROW WITH NIMBUS</span><h3>Flexible plans</h3><p>Paid pricing, website allowances, and term discounts are configured for your account.</p><button onClick={openLogin}>View plans after sign in <span>→</span></button></article></div></section>
+        <section className="marketing-pricing" id="pricing"><div className="marketing-section-heading"><div className="marketing-kicker">PLANS THAT FIT YOUR NEEDS</div><h2>Simple plans. Room to grow.</h2><p>Start with one website and move to unlimited chat when you’re ready.</p></div><div className="marketing-plan-cards">
+          <article><span>START HERE</span><h3>Free</h3><div className="marketing-plan-price">$0<small> / month</small></div><p>{plans.free.monthly_requests === null ? "Unlimited chat requests" : `${plans.free.monthly_requests} chat requests each month`}</p><ul><li>1 website</li><li>1 chat widget</li><li>Website-based answers</li></ul><button onClick={openLogin}>Create a free workspace <span>→</span></button></article>
+          <article className="featured"><span>ONE WEBSITE</span><h3>Pro</h3><div className="marketing-plan-price">${plans.pro.price_per_month}<small> / month</small></div><p>Unlimited chat requests</p><ul><li>1 website</li><li>1 chat widget</li><li>No monthly request cap</li></ul><button onClick={openLogin}>Choose Pro <span>→</span></button></article>
+          <article><span>FOR MULTIPLE WEBSITES</span><h3>Custom</h3><div className="marketing-plan-price">${plans.custom.price_per_site_month}<small> / website / month</small></div><p>Unlimited chat requests · minimum {plans.custom.minimum_websites} websites</p><ul><li>{plans.custom.minimum_websites}+ websites</li><li>One widget per website</li><li>Price scales with website count</li></ul><button onClick={openLogin}>Choose Custom <span>→</span></button></article>
+        </div><p className="marketing-pricing-note">Paid plans are activated after administrator payment review. Longer subscription terms may include discounts.</p></section>
         <footer className="marketing-footer"><a className="brand" href="/"><span className="brand-mark">✳</span><span>nimbus<span className="brand-period">.</span></span></a><span>Useful AI support for the websites you build.</span><button onClick={openLogin}>Sign in to your workspace</button></footer>
       </main>
     );

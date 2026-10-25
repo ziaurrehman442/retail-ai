@@ -1,4 +1,5 @@
 import hashlib
+import html as html_module
 import http.client
 import hmac
 import ipaddress
@@ -30,6 +31,7 @@ from dotenv import load_dotenv
 load_dotenv(BASE_DIR / ".env")
 FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
 FRONTEND_STATIC = BASE_DIR / "frontend" / "static"
+PUBLIC_URL = os.environ.get("NIMBUS_PUBLIC_URL", "").strip().rstrip("/")
 DB_PATH = Path(os.environ.get("NIMBUS_DB_PATH", BASE_DIR / "nimbus.sqlite3"))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b")
@@ -145,6 +147,11 @@ def initialize_db():
             )
             """
         )
+        chat_request_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(chat_requests)").fetchall()
+        }
+        if "first_response_ms" not in chat_request_columns:
+            connection.execute("ALTER TABLE chat_requests ADD COLUMN first_response_ms REAL")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS plan_requests (
@@ -245,17 +252,6 @@ def initialize_db():
                 "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)",
                 (key, json.dumps(value)),
             )
-
-        if connection.execute("SELECT COUNT(*) FROM sites").fetchone()[0] == 0:
-            connection.execute(
-                "INSERT INTO sites (id, name, website, knowledge, owner_id) VALUES (?, ?, ?, ?, ?)",
-                (uuid.uuid4().hex, "My first website", "", "", admin_id),
-            )
-        if admin_id:
-            connection.execute(
-                "UPDATE sites SET owner_id = ? WHERE owner_id IS NULL", (admin_id,)
-            )
-
 
 def get_site(site_id):
     with connect_db() as connection:
@@ -751,23 +747,34 @@ def start_chat_request(site, visitor_id):
 
 
 def finish_request(request_id, status, started_at):
-    response_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    completion_ms = round((time.perf_counter() - started_at) * 1000, 2)
     with connect_db() as connection:
         connection.execute(
             "UPDATE chat_requests SET status = ?, response_ms = ? WHERE id = ?",
-            (status, response_ms, request_id),
+            (status, completion_ms, request_id),
+        )
+
+
+def record_first_response(request_id, response_ms):
+    with connect_db() as connection:
+        connection.execute(
+            """
+            UPDATE chat_requests SET first_response_ms = ?
+            WHERE id = ? AND first_response_ms IS NULL
+            """,
+            (response_ms, request_id),
         )
 
 
 @app.get("/api/auth/me")
 def auth_me():
     if not g.user:
-        return jsonify(error="Please sign in to continue."), 401
+        return jsonify(authenticated=False)
     csrf_token = session.get("csrf_token")
     if not csrf_token:
         csrf_token = secrets.token_urlsafe(32)
         session["csrf_token"] = csrf_token
-    return jsonify(user=g.user, csrf_token=csrf_token)
+    return jsonify(authenticated=True, user=g.user, csrf_token=csrf_token)
 
 
 def send_login_code(email, code):
@@ -931,15 +938,10 @@ def verify_otp():
                 "INSERT INTO users (id, email, role, plan) VALUES (?, ?, ?, ?)",
                 (user_id, email, role, plan),
             )
-            if connection.execute("SELECT COUNT(*) FROM sites WHERE owner_id IS NULL").fetchone()[0]:
-                connection.execute(
-                    "UPDATE sites SET owner_id = ? WHERE owner_id IS NULL", (user_id,)
-                )
-            else:
-                connection.execute(
-                    "INSERT INTO sites (id, name, owner_id) VALUES (?, ?, ?)",
-                    (uuid.uuid4().hex, "My website", user_id),
-                )
+            connection.execute(
+                "INSERT INTO sites (id, name, owner_id) VALUES (?, ?, ?)",
+                (uuid.uuid4().hex, "My website", user_id),
+            )
 
     session.clear()
     session.permanent = True
@@ -968,14 +970,86 @@ def add_public_widget_headers(response):
 
 @app.get("/")
 def index():
-    if FRONTEND_DIST.exists():
-        return send_from_directory(FRONTEND_DIST, "index.html")
+    index_path = FRONTEND_DIST / "index.html"
+    if index_path.exists():
+        html = index_path.read_text(encoding="utf-8")
+        base_url = PUBLIC_URL or request.host_url.rstrip("/")
+        structured_data = {
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            "name": "Nimbus",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "Web",
+            "url": f"{base_url}/",
+            "description": (
+                "An AI chatbot for retail and other business websites. Add a "
+                "customizable chat widget to help visitors find answers about "
+                "products, services, and business information."
+            ),
+            "featureList": [
+                "AI chatbot for retail websites",
+                "Embeddable website chat widget",
+                "Customer support automation",
+                "Website-based business answers",
+            ],
+        }
+        escaped_base_url = html_module.escape(base_url, quote=True)
+        html = html.replace("__NIMBUS_PUBLIC_URL__", escaped_base_url)
+        html = html.replace(
+            "__NIMBUS_STRUCTURED_DATA__",
+            json.dumps(structured_data, separators=(",", ":")).replace("<", "\\u003c"),
+        )
+        public_plans_json = json.dumps(
+            public_plan_data(), separators=(",", ":")
+        )
+        public_plans_json = (
+            public_plans_json.replace("&", "\\u0026")
+            .replace("<", "\\u003c")
+            .replace(">", "\\u003e")
+            .replace("\u2028", "\\u2028")
+            .replace("\u2029", "\\u2029")
+        )
+        html = html.replace("__NIMBUS_PUBLIC_PLANS__", public_plans_json)
+        response = Response(html, mimetype="text/html")
+        response.headers["Cache-Control"] = "public, max-age=300"
+        return response
     return (
         "React frontend is not built. Run `cd frontend && npm install && npm run build`, "
         "or start the development frontend with `npm run dev`.",
         503,
         {"Content-Type": "text/plain; charset=utf-8"},
     )
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    base_url = PUBLIC_URL or request.host_url.rstrip("/")
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /api/\n"
+        "Disallow: /widget.js\n"
+        f"Sitemap: {base_url}/sitemap.xml\n"
+    )
+    return Response(body, mimetype="text/plain")
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    base_url = PUBLIC_URL or request.host_url.rstrip("/")
+    last_modified = datetime.now(timezone.utc).date().isoformat()
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        "<url>"
+        f"<loc>{html_module.escape(base_url, quote=True)}/</loc>"
+        f"<lastmod>{last_modified}</lastmod>"
+        "<changefreq>weekly</changefreq>"
+        "<priority>1.0</priority>"
+        "</url>"
+        "</urlset>"
+    )
+    return Response(body, mimetype="application/xml")
 
 
 @app.get("/assets/<path:filename>")
@@ -1179,7 +1253,7 @@ def account_usage():
             SELECT COUNT(*) AS total,
                    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful,
                    SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) AS unsuccessful,
-                   AVG(CASE WHEN status = 'success' THEN response_ms END) AS avg_ms
+                   AVG(CASE WHEN status = 'success' THEN first_response_ms END) AS avg_ms
             FROM chat_requests
             WHERE owner_id = ? AND created_at >= datetime('now', ?)
             """,
@@ -1323,6 +1397,36 @@ def create_payment_order():
 @app.post("/api/billing/request-plan")
 def request_plan():
     return jsonify(error="Paid plans now require a USDT payment order for administrator review."), 410
+
+
+@app.get("/api/public/plans")
+def public_plans():
+    return jsonify(public_plan_data())
+
+
+def public_plan_data():
+    with connect_db() as connection:
+        settings = get_billing_settings(connection)
+    return {
+        "free": {
+            "name": "Free",
+            "price_per_month": 0,
+            "monthly_requests": FREE_REQUESTS_PER_MONTH or None,
+            "websites": 1,
+        },
+        "pro": {
+            "name": settings["plans"]["pro"]["name"],
+            "price_per_month": settings["plans"]["pro"]["price_per_site_month"],
+            "monthly_requests": None,
+            "websites": 1,
+        },
+        "custom": {
+            "name": settings["plans"]["custom"]["name"],
+            "price_per_site_month": settings["plans"]["custom"]["price_per_site_month"],
+            "monthly_requests": None,
+            "minimum_websites": 2,
+        },
+    }
 
 
 @app.get("/api/admin/settings")
@@ -1551,6 +1655,7 @@ def delete_admin_user(user_id):
     if user_id == g.user["id"]:
         return jsonify(error="You cannot delete the active administrator account."), 400
     with connect_db() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         user = connection.execute(
             "SELECT email FROM users WHERE id = ? AND role != 'admin'", (user_id,)
         ).fetchone()
@@ -1559,11 +1664,24 @@ def delete_admin_user(user_id):
             if not exists:
                 return jsonify(error="This account could not be found."), 404
             return jsonify(error="Another administrator account cannot be deleted here."), 403
+        owned_site_ids = [
+            row["id"] for row in connection.execute(
+                "SELECT id FROM sites WHERE owner_id = ?", (user_id,)
+            ).fetchall()
+        ]
         connection.execute("DELETE FROM chat_requests WHERE owner_id = ?", (user_id,))
+        if owned_site_ids:
+            placeholders = ",".join("?" for _ in owned_site_ids)
+            connection.execute(
+                f"DELETE FROM chat_requests WHERE site_id IN ({placeholders})",
+                owned_site_ids,
+            )
         connection.execute("DELETE FROM sites WHERE owner_id = ?", (user_id,))
         connection.execute("DELETE FROM plan_requests WHERE user_id = ?", (user_id,))
         connection.execute("DELETE FROM payment_orders WHERE user_id = ?", (user_id,))
-        connection.execute("DELETE FROM login_codes WHERE email = ?", (user["email"],))
+        connection.execute(
+            "DELETE FROM login_codes WHERE email = ? COLLATE NOCASE", (user["email"],)
+        )
         connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
     return jsonify(ok=True)
 
@@ -1587,7 +1705,7 @@ def admin_metrics():
                    COUNT(DISTINCT visitor_id) AS visitors,
                    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful,
                    SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) AS unsuccessful,
-                   AVG(CASE WHEN status = 'success' THEN response_ms END) AS avg_ms
+                   AVG(CASE WHEN status = 'success' THEN first_response_ms END) AS avg_ms
             FROM chat_requests
             WHERE created_at >= datetime('now', ?)
             """,
@@ -1598,7 +1716,7 @@ def admin_metrics():
             SELECT date(created_at) AS day, COUNT(*) AS requests,
                    COUNT(DISTINCT visitor_id) AS visitors,
                    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful,
-                   AVG(CASE WHEN status = 'success' THEN response_ms END) AS avg_ms
+                   AVG(CASE WHEN status = 'success' THEN first_response_ms END) AS avg_ms
             FROM chat_requests
             WHERE created_at >= datetime('now', ?)
             GROUP BY date(created_at) ORDER BY day
@@ -1611,7 +1729,7 @@ def admin_metrics():
                    u.subscription_expires_at, u.created_at,
                    COUNT(r.id) AS requests_in_period,
                    SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END) AS successful,
-                   AVG(CASE WHEN r.status = 'success' THEN r.response_ms END) AS avg_ms,
+                   AVG(CASE WHEN r.status = 'success' THEN r.first_response_ms END) AS avg_ms,
                    COUNT(DISTINCT r.visitor_id) AS visitors
             FROM users u LEFT JOIN chat_requests r
               ON r.owner_id = u.id AND r.created_at >= datetime('now', ?)
@@ -1758,6 +1876,7 @@ def chat():
 
     def generate():
         status = "error"
+        first_response_recorded = False
         try:
             for line in upstream.iter_lines():
                 if not line:
@@ -1769,6 +1888,10 @@ def chat():
                     continue
                 text = chunk.get("message", {}).get("content", "")
                 if text:
+                    if not first_response_recorded:
+                        first_response_ms = round((time.perf_counter() - started_at) * 1000, 2)
+                        record_first_response(tracked_request, first_response_ms)
+                        first_response_recorded = True
                     yield f"data: {json.dumps({'text': text})}\n\n"
                 if chunk.get("error"):
                     app.logger.error("The assistant service returned an error: %s", chunk["error"])
